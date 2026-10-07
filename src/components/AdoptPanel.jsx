@@ -235,6 +235,7 @@ function PinSection({ pinMode, draftPin, onStartPin, onCancelPin, onPinAtCenter,
 
 function DrainCard({ drain, onFocus, onRemove, onCheckIn, stormActive }) {
   const [checkingIn, setCheckingIn] = useState(false);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
   const last = drain.checkIns[0];
 
   return (
@@ -261,6 +262,16 @@ function DrainCard({ drain, onFocus, onRemove, onCheckIn, stormActive }) {
             setCheckingIn(false);
           }}
         />
+      ) : confirmingRemove ? (
+        <div className="button-row" role="group" aria-label="Confirm removal">
+          <p className="confirm-text">Stop adopting this drain?</p>
+          <button type="button" className="btn btn-danger btn-small" onClick={() => onRemove(drain.id)}>
+            Yes, remove
+          </button>
+          <button type="button" className="btn btn-secondary btn-small" onClick={() => setConfirmingRemove(false)} autoFocus>
+            Keep it
+          </button>
+        </div>
       ) : (
         <div className="button-row">
           <button type="button" className="btn btn-primary btn-small" onClick={() => setCheckingIn(true)}>
@@ -272,9 +283,7 @@ function DrainCard({ drain, onFocus, onRemove, onCheckIn, stormActive }) {
           <button
             type="button"
             className="btn btn-link btn-small"
-            onClick={() => {
-              if (window.confirm(`Stop adopting "${drain.name}"?`)) onRemove(drain.id);
-            }}
+            onClick={() => setConfirmingRemove(true)}
           >
             Remove
           </button>

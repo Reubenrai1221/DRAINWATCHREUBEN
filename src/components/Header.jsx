@@ -1,4 +1,5 @@
 import Icon from './Icon';
+import logoUrl from '../assets/logo.svg';
 
 export default function Header({ stormDemo, onToggleStorm }) {
   return (
@@ -7,7 +8,7 @@ export default function Header({ stormDemo, onToggleStorm }) {
         Skip to main content
       </a>
       <div className="brand">
-        <img src="/favicon.svg" alt="" width="36" height="36" />
+        <img src={logoUrl} alt="" width="36" height="36" />
         <div>
           <h1>DrainWatch NYC</h1>
           <p className="tagline">See how your block floods. Clear drains together.</p>
