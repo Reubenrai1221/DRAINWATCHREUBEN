@@ -50,8 +50,10 @@ src/
   data/
     sampleData.js        ⚠️ ALL fake data lives here and gets replaced by real sources later
     nycBoroughs.json     simplified outlines of the five boroughs (real)
+    nycRoads.js          every NYC street and bridge, packed small (real, generated)
   lib/
     geosearch.js         NYC address search (real)
+    roads.js             unpacks the street data and finds the streets on screen
     photo.js             photo size limit, resizing, and location-data removal
     geo.js               distance and "is this point inside this shape" math
     random.js            seeded random numbers so sample data is the same on every reload
@@ -59,14 +61,14 @@ src/
   components/            one file per piece of the screen (map, slider, panels, dialog…)
 scripts/
   simplify_boroughs.py   shrinks the borough outlines file (see "Keeping the map fast")
+  build_roads.py         packs NYC's streets into src/data/nycRoads.js (see "Street map")
 ```
 
 ## Key decisions, in plain language
 
 - **React + Vite.** React splits the screen into reusable pieces (components). Vite is the tool that runs and builds it, and it's very fast. Both are free and widely used.
 - **Leaflet for the map, not MapLibre (for now).** Leaflet is simpler to learn and works fine with sample shapes. When the real flood maps arrive we may switch to MapLibre, because it draws *vector tiles* (pre-cut map pieces) on the graphics card, and that's the best way to keep huge flood files fast. Every map detail lives in `MapView.jsx`, so a swap would touch one file.
-- **CARTO light basemap.** Free, no key needed. Its pale gray background makes the blue flood areas stand out. Its terms require the attribution line on the map to stay visible.
-- **Borough outlines built in.** The street map comes from an outside server, and some places block it (school networks, the claude.ai preview page, no internet). So the app also carries its own outline of the five boroughs. If the street map loads, the outlines become thin dashed borders; if it doesn't, they're drawn as land on blue water with borough names, so the map still looks like NYC. The map also won't let you scroll away from the city.
+- **Our own street map, built into the app.** We first used CARTO's free street-map images, but CARTO started requiring an API key and sent an "API KEY REQUIRED" picture instead of streets. Most street-map services now need a key, and some networks block them. So DrainWatch draws its own map: the five boroughs as land on blue water, with every street and bridge drawn on top (see "Street map" below). It needs no key, no outside server and no internet, and it looks the same everywhere. The map also won't let you scroll away from the city.
 - **NYC GeoSearch for addresses.** It's run by NYC City Planning, it's free, it needs no key, and it only knows NYC addresses (from the city's official Property Address Directory), so you can't accidentally land in New Jersey. Suggestions appear after 3 letters, and we wait a quarter second after you stop typing before asking, so we don't send a request on every keystroke.
 - **Sample data in one file.** Every fake number comes from `data/sampleData.js`. When real data is ready, we swap those functions for real API calls and the rest of the app doesn't change.
 - **The slider snaps.** The city only modeled a few storms, so the slider jumps to the closest one instead of pretending to show in-between values. That's honest: these are *modeled scenarios*, not a live simulation.
@@ -98,9 +100,14 @@ Until a link is verified, its button shows "Link coming soon" instead of guessin
 | Clogged-drain hotspots | 311 Service Requests (Socrata API) | `HOTSPOTS`, `REPORT_YEARS` |
 | Sensor flood events | FloodNet (NYC Open Data + their GitHub) | the FloodNet part of `getBlockRisk` |
 | Address search | NYC GeoSearch (Planning Labs) | ✅ connected (`src/lib/geosearch.js`) |
+| Streets and bridges | [Overture Maps](https://overturemaps.org) road segments (release 2026-09-23.1, built from OpenStreetMap), packed by `scripts/build_roads.py` | ✅ built in |
 | Borough outlines | `new-york-city-boroughs.geojson` from [Code for Germany's click_that_hood](https://github.com/codeforgermany/click_that_hood), simplified by `scripts/simplify_boroughs.py` | ✅ built in. Swap for NYC Open Data's official Borough Boundaries once we can download it |
 | Storm mode | National Weather Service, api.weather.gov | the "Storm demo" switch |
 | Accounts, adoptions, photos, leaderboard | Supabase (free tier) | `SAMPLE_TEAMS`, browser storage |
+
+**Street map.** `scripts/build_roads.py` takes NYC's road data from Overture Maps (free and open, built from OpenStreetMap) and keeps only roads cars use inside the five boroughs. It drops tunnels, since they're underground, and marks bridges. Then it packs everything small: it simplifies each line, stores each point as the tiny difference from the previous one, and writes those numbers in as few bytes as possible. The result is 94,361 streets and 1,724 bridge pieces in 1.5 MB. In the app, `StreetLayer.jsx` draws the map the way Google Maps does: Leaflet asks for 256×256-pixel squares ("tiles") as you pan and zoom, and we paint each one on a canvas with only the streets inside it, which we find using a grid index (`src/lib/roads.js`). Highways show first, and side streets appear from zoom 14. Bridges get a dark outline when you're zoomed in, so they stand out over the water. The credit "© OpenStreetMap · Overture" in the map corner is required by the data's license (ODbL), so keep it visible.
+
+To rebuild the street data from a newer release: download the NYC road segments as GeoParquet (for example with the `overturemaps` Python tool, bounding box `-74.26,40.49,-73.70,40.92`), then run `python3 scripts/build_roads.py nyc_roads.parquet src/data/nycBoroughs.json src/data/nycRoads.js` (needs `pip install pyarrow`).
 
 **Keeping the map fast.** We already do this for the borough outlines: `scripts/simplify_boroughs.py` uses the Douglas-Peucker algorithm to remove points that don't change the shape you see. It cut the file from 68,677 points (2.6 MB) to 4,976 points (104 KB). The flood map files are much larger, so the plan is the same first step, then either cut them into vector tiles (PMTiles, one static file that can be hosted free) or ask the ArcGIS service for only the area on screen. We'll test both when we get there.
 

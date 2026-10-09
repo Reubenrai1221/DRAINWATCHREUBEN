@@ -1,8 +1,5 @@
-// Map settings. The basemap is free and needs no API key, but its terms
-// require the attribution line below to stay visible on the map.
-
-export const NYC_CENTER = [40.7128, -73.95];
-export const DEFAULT_ZOOM = 11;
+// Map settings. The street map is built into the app (see StreetLayer.jsx),
+// so there is no outside basemap service or API key.
 
 // The map opens fitted to the five boroughs, on any screen size.
 export const NYC_FIT_BOUNDS = [
@@ -23,12 +20,5 @@ export function isInNYC([lat, lng]) {
 // NYC Planning's address search (see src/lib/geosearch.js).
 export const GEOSEARCH_BASE = 'https://geosearch.planninglabs.nyc/v2';
 
-export const BASEMAP = {
-  url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-  attribution:
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  subdomains: 'abcd',
-  maxZoom: 19,
-};
 
 export const CURRENT_YEAR = new Date().getFullYear();

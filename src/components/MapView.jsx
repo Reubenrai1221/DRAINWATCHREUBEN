@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import L from 'leaflet';
-import { CircleMarker, GeoJSON, MapContainer, Marker, Pane, Polygon, TileLayer, Tooltip, ZoomControl, useMap, useMapEvents } from 'react-leaflet';
-import { BASEMAP, NYC_BOUNDS, NYC_FIT_BOUNDS } from '../config/map';
+import { CircleMarker, GeoJSON, MapContainer, Marker, Pane, Polygon, Tooltip, ZoomControl, useMap, useMapEvents } from 'react-leaflet';
+import { NYC_BOUNDS, NYC_FIT_BOUNDS } from '../config/map';
 import NYC_BOROUGHS from '../data/nycBoroughs.json';
 import { HOTSPOTS, getFloodZones, hotspotCount } from '../data/sampleData';
 import { DepthSwatch } from './FloodPatterns';
+import StreetLayer from './StreetLayer';
 
 // Leaflet's default marker images don't survive bundling, so we draw our own
 // markers with HTML/SVG.
@@ -27,9 +28,9 @@ const homeIcon = L.divIcon({
   iconAnchor: [18, 34],
 });
 
-// Simplified borough outlines ship with the app (see scripts/simplify_boroughs.py),
-// so the map always shows NYC, even when the street basemap can't load
-// (no internet, or a page that blocks outside images).
+// The whole basemap is built into the app: borough land shapes (from
+// scripts/simplify_boroughs.py) on blue water, with streets drawn on top by
+// StreetLayer. No outside map service or API key is needed.
 const BOROUGH_LABELS = [
   { name: 'Manhattan', position: [40.785, -73.968] },
   { name: 'Bronx', position: [40.848, -73.875] },
@@ -41,14 +42,22 @@ const BOROUGH_LABELS = [
   icon: L.divIcon({ className: 'borough-label', html: b.name, iconSize: [120, 20], iconAnchor: [60, 10] }),
 }));
 
-function boroughStyle(hasStreets) {
-  return hasStreets
-    ? { color: '#0b4f8a', weight: 1.5, opacity: 0.5, fillOpacity: 0, dashArray: '4 4' }
-    : { color: '#7a8ea6', weight: 1.2, fillColor: '#f7f5f0', fillOpacity: 1 };
+const LAND_STYLE = { color: '#a9b8c9', weight: 1, fillColor: '#f2efe9', fillOpacity: 1 };
+
+// Borough names only when zoomed out; up close they'd sit on top of streets.
+function BoroughLabels() {
+  const map = useMap();
+  const [zoom, setZoom] = useState(map.getZoom());
+  useMapEvents({ zoomend: () => setZoom(map.getZoom()) });
+  if (zoom > 12) return null;
+  return BOROUGH_LABELS.map((b) => (
+    <Marker key={b.name} position={b.position} icon={b.icon} interactive={false} keyboard={false} />
+  ));
 }
 
-const NUISANCE_STYLE = { color: '#1f6fae', weight: 1, fillColor: 'url(#dw-nuisance)', fillOpacity: 0.85 };
-const DEEP_STYLE = { color: '#0a2a66', weight: 1.5, fillColor: 'url(#dw-deep)', fillOpacity: 0.9 };
+// Slightly see-through so streets still show under flood zones.
+const NUISANCE_STYLE = { color: '#1f6fae', weight: 1, fillColor: 'url(#dw-nuisance)', fillOpacity: 0.7 };
+const DEEP_STYLE = { color: '#0a2a66', weight: 1.5, fillColor: 'url(#dw-deep)', fillOpacity: 0.8 };
 
 // Moves the map when the app asks it to (e.g. after an address search).
 function FlyTo({ focus }) {
@@ -67,8 +76,6 @@ function MapEvents({ onReady, onClick }) {
 }
 
 export default function MapView({ tab, scenarioId, year, lookup, drains, draftPin, pinMode, focus, onMapClick, onReady }) {
-  // null = not known yet, true = street tiles loaded, false = they failed
-  const [streetsLoaded, setStreetsLoaded] = useState(null);
   const showFlood = tab === 'flood' || tab === 'block';
   const zones = showFlood ? getFloodZones(scenarioId) : null;
 
@@ -77,37 +84,21 @@ export default function MapView({ tab, scenarioId, year, lookup, drains, draftPi
       <MapContainer
         bounds={NYC_FIT_BOUNDS}
         minZoom={9}
+        maxZoom={19}
         maxBounds={NYC_BOUNDS}
         maxBoundsViscosity={0.8}
         zoomControl={false}
         className="map"
         aria-label="Map of New York City"
       >
-        {/* Own layer: above the street tiles, below flood shapes and pins */}
+        {/* Layers stack: land (250) → streets (255) → borough names (260) → flood zones and pins */}
         <Pane name="boroughs" style={{ zIndex: 250 }}>
-          <GeoJSON
-            key={streetsLoaded ? 'outline' : 'filled'}
-            data={NYC_BOROUGHS}
-            style={boroughStyle(streetsLoaded)}
-            interactive={false}
-          />
+          <GeoJSON data={NYC_BOROUGHS} style={LAND_STYLE} interactive={false} />
         </Pane>
+        <StreetLayer />
         <Pane name="borough-labels" style={{ zIndex: 260 }}>
-          {!streetsLoaded &&
-            BOROUGH_LABELS.map((b) => (
-              <Marker key={b.name} position={b.position} icon={b.icon} interactive={false} keyboard={false} />
-            ))}
+          <BoroughLabels />
         </Pane>
-        <TileLayer
-          url={BASEMAP.url}
-          attribution={BASEMAP.attribution}
-          subdomains={BASEMAP.subdomains}
-          maxZoom={BASEMAP.maxZoom}
-          eventHandlers={{
-            tileload: () => setStreetsLoaded(true),
-            tileerror: () => setStreetsLoaded((v) => v ?? false),
-          }}
-        />
         <ZoomControl position="topright" />
         <FlyTo focus={focus} />
         <MapEvents onReady={onReady} onClick={onMapClick} />
@@ -154,9 +145,6 @@ export default function MapView({ tab, scenarioId, year, lookup, drains, draftPi
       </MapContainer>
 
       <span className="sample-badge">Sample flood data · not real</span>
-      {streetsLoaded === false && (
-        <span className="map-notice">Street map couldn't load here, so only borough outlines show.</span>
-      )}
       <MapLegend tab={tab} />
     </div>
   );

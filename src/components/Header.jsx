@@ -1,5 +1,5 @@
 import Icon from './Icon';
-import logoUrl from '../assets/logo.svg';
+import Logo from './Logo';
 
 export default function Header({ stormDemo, onToggleStorm }) {
   return (
@@ -8,11 +8,11 @@ export default function Header({ stormDemo, onToggleStorm }) {
         Skip to main content
       </a>
       <div className="brand">
-        <img src={logoUrl} alt="" width="36" height="36" />
-        <div>
-          <h1>DrainWatch NYC</h1>
-          <p className="tagline">See how your block floods. Clear drains together.</p>
-        </div>
+        <h1>
+          <Logo />
+          <span className="sr-only">DrainWatch NYC</span>
+        </h1>
+        <p className="tagline">See how your block floods. Clear drains together.</p>
       </div>
       {/* Demo-only switch so we can show storm mode before live alerts exist. */}
       <button
