@@ -273,6 +273,12 @@ input {
   inset: 0;
   background: #b9d6ee; /* water */
 }
+.street-labels {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
 .borough-label {
   font-size: 0.78rem;
   font-weight: 800;

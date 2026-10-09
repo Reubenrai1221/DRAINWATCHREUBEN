@@ -5,7 +5,8 @@ import { NYC_BOUNDS, NYC_FIT_BOUNDS } from '../config/map';
 import NYC_BOROUGHS from '../data/nycBoroughs.json';
 import { HOTSPOTS, getFloodZones, hotspotCount } from '../data/sampleData';
 import { DepthSwatch } from './FloodPatterns';
-import StreetLayer from './StreetLayer';
+import BasemapLayer from './BasemapLayer';
+import LabelLayer from './LabelLayer';
 
 // Leaflet's default marker images don't survive bundling, so we draw our own
 // markers with HTML/SVG.
@@ -29,8 +30,9 @@ const homeIcon = L.divIcon({
 });
 
 // The whole basemap is built into the app: borough land shapes (from
-// scripts/simplify_boroughs.py) on blue water, with streets drawn on top by
-// StreetLayer. No outside map service or API key is needed.
+// scripts/simplify_boroughs.py) on blue water, parks and streets drawn on top
+// by BasemapLayer, and street names by LabelLayer. No outside map service or
+// API key is needed.
 const BOROUGH_LABELS = [
   { name: 'Manhattan', position: [40.785, -73.968] },
   { name: 'Bronx', position: [40.848, -73.875] },
@@ -91,11 +93,12 @@ export default function MapView({ tab, scenarioId, year, lookup, drains, draftPi
         className="map"
         aria-label="Map of New York City"
       >
-        {/* Layers stack: land (250) → streets (255) → borough names (260) → flood zones and pins */}
+        {/* Layers stack: land (250) → parks + streets (255) → borough names (260) → flood zones (400) → street names (450) → pins */}
         <Pane name="boroughs" style={{ zIndex: 250 }}>
           <GeoJSON data={NYC_BOROUGHS} style={LAND_STYLE} interactive={false} />
         </Pane>
-        <StreetLayer />
+        <BasemapLayer />
+        <LabelLayer />
         <Pane name="borough-labels" style={{ zIndex: 260 }}>
           <BoroughLabels />
         </Pane>

@@ -1,11 +1,13 @@
 import { useEffect } from 'react';
 import L from 'leaflet';
 import { useMap } from 'react-leaflet';
-import { ROAD_CLASSES, getRoads, roadsInBox } from '../lib/roads';
+import { ROAD_CLASSES, getRoads } from '../lib/roads';
+import { PARK_MIN_ZOOM, getParks } from '../lib/parks';
 
-// Our own street map. Leaflet asks for 256×256 "tiles" as you pan and zoom;
-// we draw each one on a <canvas> from the street data built into the app.
-// No outside map service, no API key, works offline.
+// Our own base map. Leaflet asks for 256×256 "tiles" as you pan and zoom;
+// we draw each one on a <canvas> from the parks and streets built into the
+// app: parks first, then streets on top. No outside map service, no API key,
+// works offline. Street names are drawn separately by LabelLayer.
 
 // How each kind of road looks. `width` is in pixels at zoom 16 and scales
 // with zoom; `minZoom` hides small streets when zoomed out (like Google Maps).
@@ -20,6 +22,8 @@ const STYLE = {
   motorway: { minZoom: 9, width: 11, fill: '#fbd07a', casing: '#cf9530' },
 };
 const BRIDGE_CASING = '#5b6472';
+const PARK_FILL = '#c6e5bd';
+const PARK_EDGE = '#a9d39d';
 
 function lineWidth(cls, zoom) {
   return Math.max(0.7, STYLE[cls].width * 2 ** ((zoom - 16) * 0.8));
@@ -38,24 +42,48 @@ const StreetGrid = L.GridLayer.extend({
 });
 
 function drawTile(ctx, { x, y, z }, tileSize, dpr) {
-  const db = getRoads();
   const worldSize = tileSize * 2 ** z;
-  // Look a little past the tile edge so wide roads aren't cut off at seams.
-  const pad = 16 / worldSize;
-  const ids = roadsInBox(
-    (x * tileSize) / worldSize - pad,
-    (y * tileSize) / worldSize - pad,
-    ((x + 1) * tileSize) / worldSize + pad,
-    ((y + 1) * tileSize) / worldSize + pad,
-  );
-  const visible = ids.filter((r) => z >= STYLE[ROAD_CLASSES[db.kind[r]]].minZoom);
-  if (!visible.length) return;
-
-  ctx.scale(dpr, dpr);
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
   const ox = x * tileSize;
   const oy = y * tileSize;
+  // Look a little past the tile edge so wide roads aren't cut off at seams.
+  const pad = 16 / worldSize;
+  const box = [ox / worldSize - pad, oy / worldSize - pad, (ox + tileSize) / worldSize + pad, (oy + tileSize) / worldSize + pad];
+  ctx.scale(dpr, dpr);
+  drawParks(ctx, box, z, worldSize, ox, oy);
+  drawRoads(ctx, box, z, worldSize, ox, oy);
+}
+
+function drawParks(ctx, box, z, worldSize, ox, oy) {
+  const parks = getParks();
+  const ids = parks.index.query(...box).filter((p) => z >= PARK_MIN_ZOOM[parks.size[p]]);
+  if (!ids.length) return;
+  ctx.beginPath();
+  for (const p of ids) {
+    for (let r = parks.ringStart[p]; r < parks.ringStart[p + 1]; r++) {
+      for (let i = parks.pointStart[r]; i < parks.pointStart[r + 1]; i++) {
+        const px = parks.coords[i * 2] * worldSize - ox;
+        const py = parks.coords[i * 2 + 1] * worldSize - oy;
+        if (i === parks.pointStart[r]) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+    }
+  }
+  ctx.fillStyle = PARK_FILL;
+  ctx.fill('evenodd'); // "evenodd" leaves holes (lakes, buildings) unfilled
+  if (z >= 14) {
+    ctx.strokeStyle = PARK_EDGE;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+}
+
+function drawRoads(ctx, box, z, worldSize, ox, oy) {
+  const db = getRoads();
+  const visible = db.index.query(...box).filter((r) => z >= STYLE[ROAD_CLASSES[db.kind[r]]].minZoom);
+  if (!visible.length) return;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
 
   const trace = (r) => {
     let lastX = 0;
@@ -108,7 +136,7 @@ function drawTile(ctx, { x, y, z }, tileSize, dpr) {
 export const STREET_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://overturemaps.org">Overture</a>';
 
-export default function StreetLayer() {
+export default function BasemapLayer() {
   const map = useMap();
   useEffect(() => {
     // Own layer: above the borough land shapes, below flood zones and pins.

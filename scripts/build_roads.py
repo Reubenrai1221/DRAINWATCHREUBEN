@@ -17,12 +17,21 @@ How it stays small:
      each point as the small *difference* from the previous point.
   4. Write those numbers as variable-length bytes (small numbers take 1-2
      bytes instead of 8), then base64 so it fits in a JavaScript string.
+
+Street names: the source splits every street at each intersection, which is
+too short to fit a name. So for labels we join the pieces of each named street
+back into long lines (matching shared end points), shorten the names the way
+street signs and Google Maps do ("West 42nd Street" -> "W 42nd St"), and store
+those lines separately.
 """
 
 import base64
 import json
+import math
+import re
 import struct
 import sys
+from collections import defaultdict
 
 import pyarrow.parquet as pq
 
@@ -31,6 +40,31 @@ CLASSES = ["residential", "unclassified", "living_street", "tertiary", "secondar
 SCALE = 100_000  # coordinates stored in units of 0.00001 degrees
 ORIGIN = (-74.30, 40.45)  # southwest corner of the NYC area
 TOLERANCE = 0.000015  # degrees, about 1.5 m
+LABEL_TOLERANCE = 0.00004  # label lines don't need as much detail, about 4 m
+
+WORDS = {
+    "Street": "St", "Avenue": "Ave", "Boulevard": "Blvd", "Road": "Rd", "Place": "Pl",
+    "Parkway": "Pkwy", "Expressway": "Expy", "Drive": "Dr", "Lane": "Ln", "Court": "Ct",
+    "Terrace": "Ter", "Highway": "Hwy", "Turnpike": "Tpke", "Square": "Sq", "Plaza": "Plz",
+    "Bridge": "Br", "Freeway": "Fwy", "Crescent": "Cres", "Saint": "St",
+}
+DIRECTIONS = {"North": "N", "South": "S", "East": "E", "West": "W"}
+
+
+def abbreviate(name):
+    words = name.split()
+    out = []
+    for i, w in enumerate(words):
+        # "West 42nd Street" -> "W 42nd St", but "East Broadway" stays as is
+        if i == 0 and w in DIRECTIONS and len(words) > 2:
+            out.append(DIRECTIONS[w])
+        elif i == len(words) - 1 and w in DIRECTIONS and len(words) > 2:
+            out.append(DIRECTIONS[w])
+        elif w in WORDS and i > 0:
+            out.append(WORDS[w])
+        else:
+            out.append(w)
+    return re.sub(r"\s+", " ", " ".join(out)).strip()
 
 
 def parse_wkb_lines(wkb):
@@ -116,9 +150,76 @@ def varint(n, out):
     out.append(n)
 
 
+def merge_named(pieces):
+    """Join street pieces that share an end point into long lines.
+
+    pieces: list of (name, class_rank, [(x, y), ...]) with integer coordinates.
+    Returns the same shape, with pieces of the same street joined together.
+    """
+    by_name = defaultdict(list)
+    for name, rank, line in pieces:
+        by_name[name].append((rank, line))
+    merged = []
+    for name, items in by_name.items():
+        ends = defaultdict(list)  # end point -> piece indexes touching it
+        for i, (_, line) in enumerate(items):
+            ends[line[0]].append(i)
+            ends[line[-1]].append(i)
+        used = [False] * len(items)
+
+        def heading(a, b):
+            return math.atan2(b[1] - a[1], b[0] - a[0])
+
+        def grow(chain, rank):
+            # Keep adding the connected piece that continues straightest.
+            while True:
+                tip, before = chain[-1], chain[-2]
+                best, best_turn = None, math.radians(60)
+                for j in ends[tip]:
+                    if used[j]:
+                        continue
+                    line = items[j][1]
+                    nxt = line if line[0] == tip else line[::-1]
+                    turn = abs((heading(tip, nxt[1]) - heading(before, tip) + math.pi) % (2 * math.pi) - math.pi)
+                    if turn < best_turn:
+                        best, best_turn = (j, nxt), turn
+                if best is None:
+                    return rank
+                used[best[0]] = True
+                chain.extend(best[1][1:])
+                rank = max(rank, items[best[0]][0])
+
+        for i, (rank, line) in enumerate(items):
+            if used[i]:
+                continue
+            used[i] = True
+            chain = list(line)
+            rank = grow(chain, rank)
+            chain.reverse()
+            rank = grow(chain, rank)
+            merged.append((name, rank, chain))
+    return merged
+
+
+def encode_lines(lines, header):
+    out = bytearray()
+    for line in lines:
+        for value in header(line):
+            varint(value, out)
+        pts = line[-1]
+        varint(len(pts), out)
+        px, py = 0, 0
+        for x, y in pts:
+            varint(x - px, out)
+            varint(y - py, out)
+            px, py = x, y
+    return out
+
+
 def main(src, boroughs, dst):
     mask = borough_mask(boroughs)
-    table = pq.read_table(src, columns=["class", "road_flags", "geometry"]).to_pylist()
+    table = pq.read_table(src, columns=["class", "road_flags", "geometry", "names"]).to_pylist()
+    named_pieces = []
     out = bytearray()
     counts = {c: 0 for c in CLASSES}
     roads = bridges = points_in = points_out = 0
@@ -130,6 +231,7 @@ def main(src, boroughs, dst):
         if "is_tunnel" in flags:
             continue  # tunnels are underground or underwater; don't draw them
         is_bridge = "is_bridge" in flags
+        name = ((row.get("names") or {}).get("primary") or "").strip()
         for line in parse_wkb_lines(row["geometry"]):
             if not in_nyc(line, mask):
                 continue
@@ -139,6 +241,8 @@ def main(src, boroughs, dst):
             q = [p for i, p in enumerate(q) if i == 0 or p != q[i - 1]]
             if len(q) < 2:
                 continue
+            if name:
+                named_pieces.append((abbreviate(name), CLASSES.index(cls), q))
             varint(CLASSES.index(cls) * 2 + int(is_bridge), out)
             varint(len(q), out)
             px, py = 0, 0
@@ -151,16 +255,28 @@ def main(src, boroughs, dst):
             counts[cls] += 1
             points_out += len(q)
 
-    meta = {"classes": CLASSES, "scale": SCALE, "origin": ORIGIN, "roads": roads}
+    # Street-name lines: join pieces, then simplify more (labels need less detail).
+    merged = merge_named(named_pieces)
+    tol = LABEL_TOLERANCE * SCALE
+    merged = [(n, r, simplify(line, tol)) for n, r, line in merged]
+    names = sorted({n for n, _, _ in merged})
+    name_index = {n: i for i, n in enumerate(names)}
+    label_bytes = encode_lines(merged, lambda m: (name_index[m[0]], m[1]))
+
+    meta = {"classes": CLASSES, "scale": SCALE, "origin": ORIGIN, "roads": roads, "labels": len(merged)}
     data = base64.b64encode(bytes(out)).decode()
+    label_data = base64.b64encode(bytes(label_bytes)).decode()
     with open(dst, "w") as f:
         f.write("// Generated by scripts/build_roads.py. Do not edit by hand.\n")
         f.write("// Road data © OpenStreetMap contributors (ODbL), via Overture Maps Foundation.\n")
         f.write(f"export const ROAD_META = {json.dumps(meta)};\n")
         f.write(f'export const ROAD_DATA = "{data}";\n')
+        f.write(f"export const STREET_NAMES = {json.dumps(names, ensure_ascii=False)};\n")
+        f.write(f'export const LABEL_DATA = "{label_data}";\n')
     print(f"{roads:,} road lines ({bridges:,} bridge pieces), {points_in:,} -> {points_out:,} points")
     print("by class:", counts)
-    print(f"{len(out)/1e6:.2f} MB binary, {len(data)/1e6:.2f} MB as text")
+    print(f"{len(names):,} street names on {len(merged):,} label lines (from {len(named_pieces):,} pieces)")
+    print(f"roads {len(data)/1e6:.2f} MB, labels {len(label_data)/1e6:.2f} MB, names {len(json.dumps(names))/1e6:.2f} MB as text")
 
 
 if __name__ == "__main__":

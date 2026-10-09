@@ -1,4 +1,4 @@
-// Map settings. The street map is built into the app (see StreetLayer.jsx),
+// Map settings. The street map is built into the app (see BasemapLayer.jsx),
 // so there is no outside basemap service or API key.
 
 // The map opens fitted to the five boroughs, on any screen size.
