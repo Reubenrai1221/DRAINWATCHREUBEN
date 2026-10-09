@@ -128,23 +128,6 @@ export function hotspotCount(spot, year) {
 }
 
 // ---------------------------------------------------------------------------
-// Address search (later: NYC GeoSearch)
-// ---------------------------------------------------------------------------
-
-export async function sampleGeocode(query) {
-  await new Promise((r) => setTimeout(r, 350)); // pretend network delay
-  // Land near a sample flood site so the demo risk card has something to show.
-  const rand = seededRandom(hashString(query.trim().toLowerCase()));
-  const site = FLOOD_SITES[Math.floor(rand() * FLOOD_SITES.length)];
-  const [lat, lng] = ANCHORS[site.anchor];
-  const { dLat, dLng } = metersToDegrees(site.radius, lat);
-  return {
-    label: query.trim(),
-    position: [lat + (rand() - 0.5) * dLat, lng + (rand() - 0.5) * dLng],
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Block risk card (combines the three sources above + FloodNet)
 // ---------------------------------------------------------------------------
 

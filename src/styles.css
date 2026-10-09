@@ -252,7 +252,32 @@ input {
 .map {
   position: absolute;
   inset: 0;
-  background: #dfe7ef;
+  background: #cfe0ee; /* reads as water around the borough outlines */
+}
+.borough-label {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #3d4f66;
+  text-align: center;
+  white-space: nowrap;
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff;
+  pointer-events: none;
+}
+.map-notice {
+  position: absolute;
+  bottom: 58px;
+  left: 10px;
+  z-index: 450;
+  max-width: calc(100% - 80px);
+  background: rgb(255 255 255 / 0.95);
+  color: var(--muted);
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  pointer-events: none;
 }
 .map-wrap.is-pinning .map {
   cursor: crosshair;
@@ -587,6 +612,44 @@ input[aria-invalid='true'] {
 .search-row {
   display: flex;
   gap: 8px;
+}
+.combo {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 600;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  background: var(--surface);
+  border: 1.5px solid var(--brand);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgb(15 27 45 / 0.18);
+}
+.suggestions li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.suggestions li svg {
+  flex: none;
+  color: var(--muted);
+}
+.suggestions li:hover,
+.suggestions li.is-active {
+  background: var(--brand-tint);
+  color: var(--brand-dark);
 }
 .search-row .btn span {
   display: none;

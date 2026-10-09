@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { DEFAULT_SCENARIO_ID } from './config/scenarios';
-import { CURRENT_YEAR, DEFAULT_ZOOM, NYC_CENTER } from './config/map';
+import { CURRENT_YEAR, NYC_FIT_BOUNDS } from './config/map';
 import { load, save } from './lib/storage';
 import Header from './components/Header';
 import StormBanner from './components/StormBanner';
@@ -44,7 +44,7 @@ export default function App() {
     setPinMode(false);
     panelRef.current?.scrollTo({ top: 0 });
     // Hotspots are spread citywide, so zoom out to show all of them.
-    if (next === 'drains') focusMap(NYC_CENTER, DEFAULT_ZOOM);
+    if (next === 'drains') setFocus({ bounds: NYC_FIT_BOUNDS });
   }
 
   function focusMap(center, zoom = 16) {

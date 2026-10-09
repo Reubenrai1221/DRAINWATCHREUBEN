@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
-import { getBlockRisk, sampleGeocode } from '../data/sampleData';
+import { useMemo } from 'react';
+import { getBlockRisk } from '../data/sampleData';
+import AddressSearch from './AddressSearch';
 import { DEPTH_INFO } from '../config/flood';
 import { CURRENT_YEAR } from '../config/map';
 import { getScenario } from '../config/scenarios';
@@ -7,84 +8,14 @@ import { DepthSwatch } from './FloodPatterns';
 import Icon from './Icon';
 
 export default function BlockPanel({ lookup, onLookup, scenarioId, onAdoptHere, onReport }) {
-  const [query, setQuery] = useState(lookup?.label ?? '');
-  const [status, setStatus] = useState('idle');
-  const [error, setError] = useState('');
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (!query.trim()) {
-      setError('Type an address first, like "123 Main St, Queens".');
-      return;
-    }
-    setError('');
-    setStatus('loading');
-    try {
-      onLookup(await sampleGeocode(query));
-    } catch {
-      setError("We couldn't find that address. Check the spelling and try again.");
-    } finally {
-      setStatus('idle');
-    }
-  }
-
-  function useMyLocation() {
-    if (!navigator.geolocation) {
-      setError("Your browser can't share your location. Type an address instead.");
-      return;
-    }
-    setError('');
-    setStatus('locating');
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setStatus('idle');
-        setQuery('');
-        onLookup({ label: 'Your current location', position: [pos.coords.latitude, pos.coords.longitude] });
-      },
-      () => {
-        setStatus('idle');
-        setError("We couldn't get your location. Type an address instead.");
-      },
-      { enableHighAccuracy: true, timeout: 10000 },
-    );
-  }
-
   return (
     <>
       <div className="panel-intro">
         <h2>Check your block</h2>
-        <p>Get a flood risk card for any NYC address.</p>
+        <p>Search any NYC address to get its flood risk card.</p>
       </div>
 
-      <form className="search-form" onSubmit={handleSubmit} role="search">
-        <label htmlFor="address">Address</label>
-        <div className="search-row">
-          <input
-            id="address"
-            type="text"
-            inputMode="search"
-            autoComplete="street-address"
-            placeholder="e.g. 123 Main St, Queens"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            aria-describedby={error ? 'address-error' : undefined}
-            aria-invalid={error ? true : undefined}
-          />
-          <button type="submit" className="btn btn-primary" disabled={status === 'loading'}>
-            <Icon name="search" size={18} />
-            <span>{status === 'loading' ? 'Searching…' : 'Search'}</span>
-          </button>
-        </div>
-        <button type="button" className="btn btn-link" onClick={useMyLocation} disabled={status === 'locating'}>
-          <Icon name="locate" size={18} />
-          {status === 'locating' ? 'Finding you…' : 'Use my location'}
-        </button>
-        {error && (
-          <p id="address-error" className="error" role="alert">
-            {error}
-          </p>
-        )}
-      </form>
+      <AddressSearch initialValue={lookup?.label ?? ''} onSelect={onLookup} />
 
       {lookup ? (
         <RiskCard lookup={lookup} scenarioId={scenarioId} onAdoptHere={onAdoptHere} onReport={onReport} />
@@ -105,7 +36,7 @@ function RiskCard({ lookup, scenarioId, onAdoptHere, onReport }) {
     <article className="card risk-card" aria-labelledby="risk-title" aria-live="polite">
       <header className="risk-head">
         <h3 id="risk-title">{lookup.label}</h3>
-        <span className="tag tag-sample">Sample data</span>
+        <span className="tag tag-sample">Sample risk data</span>
       </header>
 
       <div className={`risk-headline depth-${current.depth}`}>

@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import L from 'leaflet';
-import { CircleMarker, MapContainer, Marker, Polygon, TileLayer, Tooltip, ZoomControl, useMap, useMapEvents } from 'react-leaflet';
-import { BASEMAP, DEFAULT_ZOOM, NYC_CENTER } from '../config/map';
+import { CircleMarker, GeoJSON, MapContainer, Marker, Pane, Polygon, TileLayer, Tooltip, ZoomControl, useMap, useMapEvents } from 'react-leaflet';
+import { BASEMAP, NYC_BOUNDS, NYC_FIT_BOUNDS } from '../config/map';
+import NYC_BOROUGHS from '../data/nycBoroughs.json';
 import { HOTSPOTS, getFloodZones, hotspotCount } from '../data/sampleData';
 import { DepthSwatch } from './FloodPatterns';
 
@@ -26,6 +27,26 @@ const homeIcon = L.divIcon({
   iconAnchor: [18, 34],
 });
 
+// Simplified borough outlines ship with the app (see scripts/simplify_boroughs.py),
+// so the map always shows NYC, even when the street basemap can't load
+// (no internet, or a page that blocks outside images).
+const BOROUGH_LABELS = [
+  { name: 'Manhattan', position: [40.785, -73.968] },
+  { name: 'Bronx', position: [40.848, -73.875] },
+  { name: 'Queens', position: [40.712, -73.82] },
+  { name: 'Brooklyn', position: [40.645, -73.945] },
+  { name: 'Staten Island', position: [40.58, -74.15] },
+].map((b) => ({
+  ...b,
+  icon: L.divIcon({ className: 'borough-label', html: b.name, iconSize: [120, 20], iconAnchor: [60, 10] }),
+}));
+
+function boroughStyle(hasStreets) {
+  return hasStreets
+    ? { color: '#0b4f8a', weight: 1.5, opacity: 0.5, fillOpacity: 0, dashArray: '4 4' }
+    : { color: '#7a8ea6', weight: 1.2, fillColor: '#f7f5f0', fillOpacity: 1 };
+}
+
 const NUISANCE_STYLE = { color: '#1f6fae', weight: 1, fillColor: 'url(#dw-nuisance)', fillOpacity: 0.85 };
 const DEEP_STYLE = { color: '#0a2a66', weight: 1.5, fillColor: 'url(#dw-deep)', fillOpacity: 0.9 };
 
@@ -33,7 +54,8 @@ const DEEP_STYLE = { color: '#0a2a66', weight: 1.5, fillColor: 'url(#dw-deep)', 
 function FlyTo({ focus }) {
   const map = useMap();
   useEffect(() => {
-    if (focus) map.flyTo(focus.center, focus.zoom, { duration: 0.8 });
+    if (focus?.bounds) map.flyToBounds(focus.bounds, { duration: 0.8 });
+    else if (focus) map.flyTo(focus.center, focus.zoom, { duration: 0.8 });
   }, [focus, map]);
   return null;
 }
@@ -45,19 +67,47 @@ function MapEvents({ onReady, onClick }) {
 }
 
 export default function MapView({ tab, scenarioId, year, lookup, drains, draftPin, pinMode, focus, onMapClick, onReady }) {
+  // null = not known yet, true = street tiles loaded, false = they failed
+  const [streetsLoaded, setStreetsLoaded] = useState(null);
   const showFlood = tab === 'flood' || tab === 'block';
   const zones = showFlood ? getFloodZones(scenarioId) : null;
 
   return (
     <div className={`map-wrap${pinMode ? ' is-pinning' : ''}`}>
       <MapContainer
-        center={NYC_CENTER}
-        zoom={DEFAULT_ZOOM}
+        bounds={NYC_FIT_BOUNDS}
+        minZoom={9}
+        maxBounds={NYC_BOUNDS}
+        maxBoundsViscosity={0.8}
         zoomControl={false}
         className="map"
         aria-label="Map of New York City"
       >
-        <TileLayer url={BASEMAP.url} attribution={BASEMAP.attribution} subdomains={BASEMAP.subdomains} maxZoom={BASEMAP.maxZoom} />
+        {/* Own layer: above the street tiles, below flood shapes and pins */}
+        <Pane name="boroughs" style={{ zIndex: 250 }}>
+          <GeoJSON
+            key={streetsLoaded ? 'outline' : 'filled'}
+            data={NYC_BOROUGHS}
+            style={boroughStyle(streetsLoaded)}
+            interactive={false}
+          />
+        </Pane>
+        <Pane name="borough-labels" style={{ zIndex: 260 }}>
+          {!streetsLoaded &&
+            BOROUGH_LABELS.map((b) => (
+              <Marker key={b.name} position={b.position} icon={b.icon} interactive={false} keyboard={false} />
+            ))}
+        </Pane>
+        <TileLayer
+          url={BASEMAP.url}
+          attribution={BASEMAP.attribution}
+          subdomains={BASEMAP.subdomains}
+          maxZoom={BASEMAP.maxZoom}
+          eventHandlers={{
+            tileload: () => setStreetsLoaded(true),
+            tileerror: () => setStreetsLoaded((v) => v ?? false),
+          }}
+        />
         <ZoomControl position="topright" />
         <FlyTo focus={focus} />
         <MapEvents onReady={onReady} onClick={onMapClick} />
@@ -103,7 +153,10 @@ export default function MapView({ tab, scenarioId, year, lookup, drains, draftPi
         {tab === 'adopt' && draftPin && <Marker position={draftPin} icon={draftIcon} title="New drain" alt="New drain" />}
       </MapContainer>
 
-      <span className="sample-badge">Sample data · not real</span>
+      <span className="sample-badge">Sample flood data · not real</span>
+      {streetsLoaded === false && (
+        <span className="map-notice">Street map couldn't load here, so only borough outlines show.</span>
+      )}
       <MapLegend tab={tab} />
     </div>
   );

@@ -2,7 +2,7 @@
 
 DrainWatch shows New Yorkers how their block floods and lets neighbors adopt and clear storm drains before storms hit.
 
-> **Status: Phase 0, the interface prototype.** Every screen and button works, but the app runs on **made-up sample data**. Nothing on the map is real flooding, real 311 reports, or real sensors. The map says "Sample data · not real" so nobody gets confused.
+> **Status: Phase 0, the interface prototype.** Every screen and button works. The map of NYC and the **address search are real**. Everything else (flood zones, 311 reports, sensors, leaderboard) is still **made-up sample data**, and the map says "Sample flood data · not real" so nobody gets confused.
 
 ## Run it
 
@@ -29,7 +29,7 @@ No API keys are needed yet. Later phases will use a `.env.local` file (see `.env
 | Tab | What it does |
 |---|---|
 | **Flood map** | Drag the rain slider (or use the arrow keys). It snaps between the city's modeled storms: 1.77, 2.13, and 3.66 in/hr. The sea-level switch picks today's sea level or future sea-level rise, and the option the city didn't model is crossed out. A dashed red line marks Hurricane Ida (3.15 in/hr), and a striped band shows what most sewers are built for (1.5–1.75 in/hr). |
-| **My block** | Type any address or tap "Use my location" to get a risk card: flood depth in the current storm, a "when does this block flood?" table for every storm, nearby 311 clogged-drain reports, and FloodNet sensor events. |
+| **My block** | Type a real NYC address and pick from the live suggestions (arrow keys + Enter work too), or tap "Use my location". The map zooms to that address and shows a risk card: flood depth in the current storm, a "when does this block flood?" table for every storm, nearby 311 clogged-drain reports, and FloodNet sensor events. The address is real; the risk numbers are still samples. |
 | **Hotspots** | Circles show where clogged catch basins were reported (bigger circle = more reports). Filter by year, then tap a hotspot in the list to zoom to it. |
 | **Adopt** | Use a demo sign-in to join a block or school, pin a drain on the map (tap the map or "Use center of map"), check in as cleared with an optional photo, and watch your team climb the leaderboard. "Report photo" hides a photo the way moderation will. |
 | **Report** | Explains what to tell 311 and links to the city's clogged catch basin page. |
@@ -49,12 +49,16 @@ src/
     map.js               basemap and starting view
   data/
     sampleData.js        ⚠️ ALL fake data lives here and gets replaced by real sources later
+    nycBoroughs.json     simplified outlines of the five boroughs (real)
   lib/
+    geosearch.js         NYC address search (real)
     photo.js             photo size limit, resizing, and location-data removal
     geo.js               distance and "is this point inside this shape" math
     random.js            seeded random numbers so sample data is the same on every reload
     storage.js           safe browser storage for the demo
   components/            one file per piece of the screen (map, slider, panels, dialog…)
+scripts/
+  simplify_boroughs.py   shrinks the borough outlines file (see "Keeping the map fast")
 ```
 
 ## Key decisions, in plain language
@@ -62,6 +66,8 @@ src/
 - **React + Vite.** React splits the screen into reusable pieces (components). Vite is the tool that runs and builds it, and it's very fast. Both are free and widely used.
 - **Leaflet for the map, not MapLibre (for now).** Leaflet is simpler to learn and works fine with sample shapes. When the real flood maps arrive we may switch to MapLibre, because it draws *vector tiles* (pre-cut map pieces) on the graphics card, and that's the best way to keep huge flood files fast. Every map detail lives in `MapView.jsx`, so a swap would touch one file.
 - **CARTO light basemap.** Free, no key needed. Its pale gray background makes the blue flood areas stand out. Its terms require the attribution line on the map to stay visible.
+- **Borough outlines built in.** The street map comes from an outside server, and some places block it (school networks, the claude.ai preview page, no internet). So the app also carries its own outline of the five boroughs. If the street map loads, the outlines become thin dashed borders; if it doesn't, they're drawn as land on blue water with borough names, so the map still looks like NYC. The map also won't let you scroll away from the city.
+- **NYC GeoSearch for addresses.** It's run by NYC City Planning, it's free, it needs no key, and it only knows NYC addresses (from the city's official Property Address Directory), so you can't accidentally land in New Jersey. Suggestions appear after 3 letters, and we wait a quarter second after you stop typing before asking, so we don't send a request on every keystroke.
 - **Sample data in one file.** Every fake number comes from `data/sampleData.js`. When real data is ready, we swap those functions for real API calls and the rest of the app doesn't change.
 - **The slider snaps.** The city only modeled a few storms, so the slider jumps to the closest one instead of pretending to show in-between values. That's honest: these are *modeled scenarios*, not a live simulation.
 - **Not color alone.** Nuisance flooding is light blue **with dots**, deep flooding is dark blue **with stripes**, and every result is also written out in words. Colorblind users and screen-reader users get the same information.
@@ -79,7 +85,7 @@ The project brief says not to trust memory for IDs, field names, or URLs. These 
 - [ ] Stormwater Flood Maps dataset IDs/layers, and which rain + sea-level combinations exist → `src/config/scenarios.js`
 - [ ] 311 dataset ID plus the exact complaint type / descriptor for clogged catch basins (query distinct values first)
 - [ ] FloodNet sensor and flood-event dataset IDs and fields
-- [ ] NYC GeoSearch endpoint and response format
+- [x] NYC GeoSearch endpoint and response format. Checked against NYC Planning's own docs source ([labs-geosearch-docs](https://github.com/NYCPlanning/labs-geosearch-docs), `src/pages/docs.js`): `https://geosearch.planninglabs.nyc/v2/autocomplete?text=…` and `/v2/search?text=…&size=1`, GeoJSON results with `properties.label` and `[longitude, latitude]` coordinates. Still to do: a live test from a normal browser, because the build environment blocks the site.
 - [ ] api.weather.gov alerts-by-point endpoint and required User-Agent format
 
 Until a link is verified, its button shows "Link coming soon" instead of guessing.
@@ -91,11 +97,12 @@ Until a link is verified, its button shows "Link coming soon" instead of guessin
 | Flood zones per storm | NYC Stormwater Flood Maps (NYC Open Data / ArcGIS) | `getFloodZones`, `floodDepthAt` |
 | Clogged-drain hotspots | 311 Service Requests (Socrata API) | `HOTSPOTS`, `REPORT_YEARS` |
 | Sensor flood events | FloodNet (NYC Open Data + their GitHub) | the FloodNet part of `getBlockRisk` |
-| Address search | NYC GeoSearch (Planning Labs) | `sampleGeocode` |
+| Address search | NYC GeoSearch (Planning Labs) | ✅ connected (`src/lib/geosearch.js`) |
+| Borough outlines | `new-york-city-boroughs.geojson` from [Code for Germany's click_that_hood](https://github.com/codeforgermany/click_that_hood), simplified by `scripts/simplify_boroughs.py` | ✅ built in. Swap for NYC Open Data's official Borough Boundaries once we can download it |
 | Storm mode | National Weather Service, api.weather.gov | the "Storm demo" switch |
 | Accounts, adoptions, photos, leaderboard | Supabase (free tier) | `SAMPLE_TEAMS`, browser storage |
 
-**Keeping the flood map fast.** The flood map files are very large, so the plan is to download them once, simplify the shapes (fewer points, which looks the same at street zoom), and either cut them into vector tiles (PMTiles, one static file that can be hosted free) or ask the ArcGIS service for only the area on screen. We'll test both when we get there.
+**Keeping the map fast.** We already do this for the borough outlines: `scripts/simplify_boroughs.py` uses the Douglas-Peucker algorithm to remove points that don't change the shape you see. It cut the file from 68,677 points (2.6 MB) to 4,976 points (104 KB). The flood map files are much larger, so the plan is the same first step, then either cut them into vector tiles (PMTiles, one static file that can be hosted free) or ask the ArcGIS service for only the area on screen. We'll test both when we get there.
 
 ## Build phases
 
